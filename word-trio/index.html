@@ -92,6 +92,7 @@ button:focus-visible { outline: 3px solid var(--sun); outline-offset: 3px; }
   width: 42px; height: 42px; border-radius: 50%; border: 1px solid var(--panel-line);
   background: var(--panel); display: grid; place-items: center; padding: 0;
 }
+.icon-btn.off { opacity: .45; }
 .icon-btn svg { width: 22px; height: 22px; fill: none; stroke: var(--white); stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
 
 .status { display: flex; align-items: center; gap: 10px; font-size: 12px; font-weight: 800; }
@@ -263,7 +264,7 @@ button:focus-visible { outline: 3px solid var(--sun); outline-offset: 3px; }
 .learn { display: flex; flex-direction: column; gap: 6px; text-align: left; }
 .learn h3 { margin: 0; font-size: 12px; letter-spacing: .1em; text-transform: uppercase; color: var(--ink-soft); }
 .trio { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; font-weight: 800; font-size: 14px; }
-.trio span { background: var(--white); border-radius: 8px; padding: 3px 8px; box-shadow: 0 2px 0 rgba(0,0,0,.08); }
+.trio span { cursor: pointer; background: var(--white); border-radius: 8px; padding: 3px 8px; box-shadow: 0 2px 0 rgba(0,0,0,.08); }
 .trio span.h { background: var(--hu); color: #7a2f1d; }
 .trio em { font-style: normal; color: var(--mint-dark); font-weight: 900; }
 .best { font-size: 13px; font-weight: 800; color: var(--ink-soft); }
@@ -283,6 +284,9 @@ button:focus-visible { outline: 3px solid var(--sun); outline-offset: 3px; }
     <div class="hud-right">
       <button class="icon-btn" id="snd" aria-label="Hang be/ki">
         <svg viewBox="0 0 24 24" id="sndIcon"><path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12"/></svg>
+      </button>
+      <button class="icon-btn" id="voiceBtn" aria-label="Kiejtés be/ki">
+        <svg viewBox="0 0 24 24"><path d="M4 5h16v11H9l-5 4z"/><path d="M8 10.5h.01M12 10.5h.01M16 10.5h.01"/></svg>
       </button>
       <button class="icon-btn" id="pauseBtn" aria-label="Szünet">
         <svg viewBox="0 0 24 24"><path d="M9 6v12M15 6v12"/></svg>
@@ -427,7 +431,7 @@ const shuffle = a => { for (let i = a.length - 1; i > 0; i--) { const j = rnd(i 
 
 // ---------- persistence (per-viewer convenience only) ----------
 const SAVE_KEY = 'wordtrio-v1';
-let save = { diff: 'easy', level: { easy: 1, normal: 1, hard: 1 }, best: { easy: 0, normal: 0, hard: 0 }, muted: false };
+let save = { diff: 'easy', level: { easy: 1, normal: 1, hard: 1 }, best: { easy: 0, normal: 0, hard: 0 }, muted: false, voice: true };
 try { const s = JSON.parse(localStorage.getItem(SAVE_KEY)); if (s && s.level) save = Object.assign(save, s); } catch (e) {}
 const persist = () => { try { localStorage.setItem(SAVE_KEY, JSON.stringify(save)); } catch (e) {} };
 
@@ -463,6 +467,24 @@ const SFX = {
   undo() { tone(520, .09, 'sine', .1); tone(390, .1, 'sine', .08, .06); },
   hint() { tone(880, .15, 'sine', .08); tone(1320, .22, 'sine', .06, .08); },
 };
+
+// ---------- pronunciation (Web Speech API) ----------
+const synth = window.speechSynthesis;
+function voiceFor(lang) {
+  const vs = synth.getVoices(), norm = v => v.lang.replace('_', '-').toLowerCase();
+  return vs.find(v => norm(v) === lang.toLowerCase()) || vs.find(v => norm(v).startsWith(lang.slice(0, 2)));
+}
+function speak(word, hu) {
+  if (!synth || !save.voice) return;
+  try {
+    synth.cancel();
+    const u = new SpeechSynthesisUtterance(word), lang = hu ? 'hu-HU' : 'en-GB';
+    u.lang = lang; u.rate = .95;
+    const v = voiceFor(lang); if (v) u.voice = v;
+    synth.speak(u);
+  } catch (e) {}
+}
+if (synth) { synth.getVoices(); synth.addEventListener?.('voiceschanged', () => synth.getVoices()); }
 
 // ---------- particles ----------
 const cv = $('#fx'), cx = cv.getContext('2d');
@@ -698,6 +720,7 @@ function pick(t) {
   it.el.classList.remove('notrans');
   S.tray.push(it); S.history.push(it);
   SFX.pick();
+  speak(t.word, t.hu);
 
   const same = liveTray().filter(i => i.tile.group === t.group);
   if (same.length === 3) {
@@ -878,6 +901,12 @@ function setSndIcon() {
     ? '<path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M17 9l5 6M22 9l-5 6"/>'
     : '<path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12"/>';
 }
+const setVoiceBtn = () => $('#voiceBtn').classList.toggle('off', !save.voice);
+$('#voiceBtn').onclick = () => { save.voice = !save.voice; persist(); setVoiceBtn(); if (!save.voice && synth) synth.cancel(); };
+// tap a word on the result screens to hear it again
+document.addEventListener('click', e => {
+  const s = e.target.closest('.trio span'); if (s) speak(s.textContent, s.classList.contains('h'));
+});
 $('#snd').onclick = () => { save.muted = !save.muted; persist(); setSndIcon(); };
 window.addEventListener('resize', () => { resizeFx(); layoutBoard(); layoutTray(); });
 
@@ -889,7 +918,7 @@ for (let i = 0; i < 12; i++) {
   bub.appendChild(s);
 }
 
-resizeFx(); setSndIcon(); updateHud(); show('menu');
+resizeFx(); setSndIcon(); setVoiceBtn(); updateHud(); show('menu');
 })();
 </script>
 <!-- page content ends here -->
