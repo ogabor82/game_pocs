@@ -1,0 +1,914 @@
+<!doctype html>
+<html lang="hu">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Word Burst</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;700;800&family=Nunito:wght@700;800;900&display=swap">
+<style>
+/* Layout: one full-height column — HUD / physics field (canvas) / launcher bar. Single dusk-sky look: plum night, coral glow, glassy jar field */
+:root {
+  --sky-top: #2a1550;
+  --sky-mid: #6b2a6e;
+  --sky-low: #e0645a;
+  --glow: #ffb86b;
+  --sun: #ffd25a;
+  --sun-dark: #d8961a;
+  --mint: #4fe3b5;
+  --danger: #ff4d6d;
+  --ink: #2a1838;
+  --white: #ffffff;
+  --panel: rgba(20, 8, 40, .45);
+  --line: rgba(255, 255, 255, .18);
+  --card: #fff6ec;
+  --card-ink: #3a2147;
+  --card-soft: #7d6488;
+  --f-display: "Baloo 2", "Trebuchet MS", system-ui, sans-serif;
+  --f-body: "Nunito", "Segoe UI", system-ui, sans-serif;
+  color-scheme: dark;
+}
+[hidden] { display: none !important; }
+html { height: 100%; box-sizing: border-box; }
+*, *::before, *::after { box-sizing: inherit; }
+body {
+  height: 100%; margin: 0; overflow: hidden;
+  background: linear-gradient(180deg, var(--sky-top) 0%, var(--sky-mid) 55%, var(--sky-low) 100%);
+  background-color: var(--sky-top);
+  color: var(--white); font-family: var(--f-body);
+  -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent;
+  touch-action: none; overscroll-behavior: none;
+}
+button { font: inherit; color: inherit; cursor: pointer; border: 0; background: none; }
+button:focus-visible { outline: 3px solid var(--sun); outline-offset: 3px; }
+
+#app {
+  height: 100%; max-width: 560px; margin: 0 auto;
+  display: grid; grid-template-rows: auto 1fr; gap: 8px;
+  padding-left: max(12px, env(safe-area-inset-left, 0px));
+  padding-right: max(12px, env(safe-area-inset-right, 0px));
+  padding-block: 8px 10px;
+}
+.hud { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 10px; }
+.lvl {
+  font-family: var(--f-display); font-weight: 800; line-height: 1;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 6px 10px; text-align: center;
+}
+.lvl small { display: block; font-family: var(--f-body); font-size: 10px; letter-spacing: .12em; opacity: .7; }
+.lvl b { font-size: 22px; }
+.mid { display: grid; gap: 5px; min-width: 0; }
+.score { font-family: var(--f-display); font-weight: 800; font-size: 26px; line-height: 1; text-align: center; font-variant-numeric: tabular-nums; text-shadow: 0 2px 0 rgba(0,0,0,.25); }
+.bar { position: relative; height: 12px; border-radius: 99px; background: rgba(0,0,0,.3); overflow: hidden; border: 1px solid var(--line); }
+.bar i { position: absolute; inset: 0 auto 0 0; width: 0; border-radius: 99px; background: linear-gradient(90deg, var(--mint), var(--sun)); transition: width .35s cubic-bezier(.3,1.4,.5,1); }
+.bar span { position: absolute; inset: 0; font-size: 9px; font-weight: 900; text-align: center; line-height: 11px; letter-spacing: .08em; color: rgba(255,255,255,.95); text-shadow: 0 1px 1px rgba(0,0,0,.5); }
+.btns { display: flex; gap: 6px; }
+.ib { width: 38px; height: 38px; border-radius: 12px; background: var(--panel); border: 1px solid var(--line); display: grid; place-items: center; }
+.ib svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+.ib.off { opacity: .45; }
+
+.stage { position: relative; min-height: 0; }
+#cv { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+
+/* overlays */
+.ov {
+  position: fixed; inset: 0; z-index: 10; display: grid; place-items: center;
+  background: rgba(20, 6, 36, .55); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+  padding: 20px max(16px, env(safe-area-inset-right, 0px)) 20px max(16px, env(safe-area-inset-left, 0px));
+}
+.card {
+  width: min(380px, 100%); background: var(--card); color: var(--card-ink); border-radius: 26px;
+  padding: 22px 20px 20px; text-align: center; box-shadow: 0 18px 50px rgba(0,0,0,.4), inset 0 -5px 0 rgba(0,0,0,.06);
+  animation: pop .45s cubic-bezier(.2,1.6,.4,1);
+  max-height: calc(100% - 10px); overflow-y: auto;
+}
+@keyframes pop { from { transform: scale(.7); opacity: 0; } }
+.card h1, .card h2 { font-family: var(--f-display); margin: 0; line-height: 1; text-wrap: balance; }
+.card h1 { font-size: 46px; background: linear-gradient(180deg, #ff7a59, #c2367a); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.card h2 { font-size: 34px; color: #c2367a; }
+.card p { margin: 10px 0 0; font-size: 15px; line-height: 1.4; color: var(--card-soft); font-weight: 700; }
+.demo { display: flex; justify-content: center; align-items: center; gap: 8px; margin: 16px 0 6px; font-weight: 900; color: var(--card-ink); }
+.demo .b { width: 64px; height: 64px; border-radius: 50%; display: grid; place-items: center; font-size: 13px; color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,.35); box-shadow: inset -5px -7px 0 rgba(0,0,0,.15), inset 5px 6px 0 rgba(255,255,255,.3); }
+.rules { text-align: left; display: grid; gap: 6px; margin: 12px 0 0; padding: 0; list-style: none; font-size: 14px; font-weight: 700; color: var(--card-soft); }
+.rules li { display: grid; grid-template-columns: 22px 1fr; gap: 6px; }
+.big { margin-top: 18px; width: 100%; padding: 14px; border-radius: 18px; font-family: var(--f-display); font-weight: 800; font-size: 24px; color: #fff;
+  background: linear-gradient(180deg, #ff8a5c, #e2456b); box-shadow: 0 5px 0 #a8264f, 0 10px 20px rgba(226,69,107,.35); transition: transform .08s; }
+.big:active { transform: translateY(3px); box-shadow: 0 2px 0 #a8264f; }
+.alt { margin-top: 10px; font-weight: 800; color: var(--card-soft); text-decoration: underline; padding: 6px; }
+.stats { display: flex; justify-content: center; gap: 22px; margin-top: 12px; }
+.stats div { font-size: 11px; letter-spacing: .1em; font-weight: 900; color: var(--card-soft); }
+.stats b { display: block; font-family: var(--f-display); font-size: 28px; letter-spacing: 0; color: var(--card-ink); font-variant-numeric: tabular-nums; }
+.learned { margin-top: 14px; display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
+.learned span { background: #ffe7d3; color: var(--card-ink); border-radius: 99px; padding: 4px 10px; font-size: 13px; font-weight: 800; }
+.learned span em { font-style: normal; color: #c2367a; }
+@media (prefers-reduced-motion: reduce) { .card { animation: none; } }
+</style>
+</head>
+<body>
+<div id="app">
+  <header class="hud">
+    <div class="lvl"><small>SZINT</small><b id="lvl">1</b></div>
+    <div class="mid">
+      <div class="score" id="score">0</div>
+      <div class="bar"><i id="barFill"></i><span id="barTxt">0 / 7</span></div>
+    </div>
+    <div class="btns">
+      <button class="ib" id="voiceBtn" aria-label="Kiejtés be/ki"><svg viewBox="0 0 24 24"><path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3z"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>
+      <button class="ib" id="muteBtn" aria-label="Hang be/ki"><svg viewBox="0 0 24 24"><path d="M4 9v6h4l5 4V5L8 9H4z"/><path d="M16 9a4 4 0 0 1 0 6M18.5 6.5a8 8 0 0 1 0 11"/></svg></button>
+      <button class="ib" id="pauseBtn" aria-label="Szünet"><svg viewBox="0 0 24 24"><path d="M8 5v14M16 5v14"/></svg></button>
+    </div>
+  </header>
+  <main class="stage" id="stage"><canvas id="cv"></canvas></main>
+</div>
+
+<div class="ov" id="ovStart">
+  <div class="card">
+    <h1>Word Burst</h1>
+    <div class="demo">
+      <div class="b" style="background:#ff7a59">happy</div>+
+      <div class="b" style="background:#5b8cff">boldog</div>+
+      <div class="b" style="background:#2fbf8f">cheerful</div>
+    </div>
+    <ul class="rules">
+      <li><span>🎯</span><span>Húzd az ujjad a célzáshoz, engedd el a lövéshez.</span></li>
+      <li><span>✨</span><span>Az azonos jelentésű buborékok összeolvadnak. Ha egy jelentés minden alakja összegyűlt, a buborék szétdurran.</span></li>
+      <li><span>⚠️</span><span>Ne engedd, hogy a buborékok átlógjanak a piros vonalon!</span></li>
+      <li><span>⭐</span><span>Láncreakcióért csillagot kapsz: bármelyik buborékhoz hozzáadja a hiányzó szót.</span></li>
+    </ul>
+    <button class="big" id="playBtn">Játék</button>
+    <div class="stats" id="bestBox" hidden><div>LEGJOBB<b id="bestScore">0</b></div><div>SZINT<b id="bestLvl">1</b></div></div>
+  </div>
+</div>
+
+<div class="ov" id="ovEnd" hidden>
+  <div class="card">
+    <h2 id="endTitle">Szint teljesítve!</h2>
+    <p id="endSub"></p>
+    <div class="stats"><div>PONT<b id="endScore">0</b></div><div>LEGJOBB<b id="endBest">0</b></div></div>
+    <div class="learned" id="learned"></div>
+    <button class="big" id="nextBtn">Tovább</button>
+    <button class="alt" id="altBtn">Újrakezdés az 1. szinttől</button>
+  </div>
+</div>
+
+<div class="ov" id="ovPause" hidden>
+  <div class="card">
+    <h2>Szünet</h2>
+    <button class="big" id="resumeBtn">Folytatás</button>
+    <button class="alt" id="restartBtn">Szint újrakezdése</button>
+  </div>
+</div>
+
+<script>
+// ---------- vocabulary: each group = all forms that mean the same thing (English synonyms, Hungarian, optional picture) ----------
+const VOCAB = [
+  ['big', 'large', 'nagy'], ['small', 'little', 'kicsi'], ['begin', 'start', 'kezd'], ['finish', 'end', 'befejez'],
+  ['beautiful', 'lovely', 'gyönyörű'], ['happy', 'cheerful', 'boldog'], ['sad', 'unhappy', 'szomorú'], ['fast', 'quick', 'gyors'],
+  ['angry', 'cross', 'dühös'], ['clever', 'smart', 'okos'], ['easy', 'simple', 'könnyű'], ['difficult', 'hard', 'nehéz'],
+  ['rich', 'wealthy', 'gazdag'], ['quiet', 'silent', 'csendes'], ['loud', 'noisy', 'hangos'], ['strange', 'odd', 'furcsa'],
+  ['tired', 'worn out', 'fáradt'], ['choose', 'pick', 'választ'], ['buy', 'purchase', 'vásárol'], ['help', 'assist', 'segít'],
+  ['look for', 'search for', 'keres'], ['talk', 'speak', 'beszél'], ['shout', 'yell', 'kiabál'], ['holiday', 'vacation', 'nyaralás'],
+  ['journey', 'trip', 'utazás'], ['present', 'gift', 'ajándék', '🎁'], ['flat', 'apartment', 'lakás'], ['shop', 'store', 'bolt', '🏪'],
+  ['mistake', 'error', 'hiba'], ['answer', 'reply', 'válasz'], ['maybe', 'perhaps', 'talán'], ['often', 'frequently', 'gyakran'],
+  ['almost', 'nearly', 'majdnem'], ['huge', 'enormous', 'hatalmas'], ['delicious', 'tasty', 'finom', '😋'], ['rude', 'impolite', 'goromba'],
+  ['brave', 'courageous', 'bátor'], ['famous', 'well-known', 'híres'], ['ill', 'sick', 'beteg', '🤒'], ['correct', 'right', 'helyes'],
+  ['return', 'come back', 'visszatér'], ['leave', 'depart', 'távozik'], ['repair', 'fix', 'megjavít', '🔧'], ['receive', 'get', 'kap'],
+  ['cheap', 'inexpensive', 'olcsó'], ['expensive', 'costly', 'drága'], ['dirty', 'unclean', 'piszkos'], ['empty', 'vacant', 'üres'],
+  ['funny', 'amusing', 'vicces'], ['scary', 'frightening', 'ijesztő'], ['awful', 'terrible', 'szörnyű'], ['wonderful', 'amazing', 'csodálatos'],
+  ['shut', 'close', 'becsuk'], ['everyone', 'everybody', 'mindenki'], ['nobody', 'no one', 'senki'], ['kind', 'caring', 'kedves'],
+  ['bike', 'bicycle', 'bicikli', '🚲'], ['sweets', 'candy', 'cukorka', '🍬'], ['luggage', 'baggage', 'poggyász', '🧳'],
+  ['biscuit', 'cookie', 'keksz', '🍪'], ['sofa', 'couch', 'kanapé', '🛋️'], ['rubbish', 'garbage', 'szemét', '🗑️'],
+  ['umbrella', 'esernyő', '☂️'], ['key', 'kulcs', '🔑'], ['apple', 'alma', '🍎'], ['clock', 'óra', '⏰'], ['rain', 'eső', '🌧️'],
+  ['ship', 'boat', 'hajó', '🚢'], ['plane', 'aeroplane', 'repülőgép', '✈️'], ['scared', 'afraid', 'ijedt', '😱'],
+  ['lazy', 'idle', 'lusta'], ['polite', 'well-mannered', 'udvarias'], ['dangerous', 'risky', 'veszélyes'], ['wet', 'soaked', 'vizes'],
+];
+const isPic = f => /^[\p{Emoji_Presentation}\p{Extended_Pictographic}]/u.test(f);
+const HU = new Set(VOCAB.map(g => g.filter(f => !isPic(f)).pop()));
+const kindOf = f => isPic(f) ? 'pic' : HU.has(f) ? 'hu' : 'en';
+
+// ---------- helpers ----------
+const $ = s => document.querySelector(s);
+const rnd = n => Math.random() * n | 0;
+const pick = a => a[rnd(a.length)];
+const shuffle = a => { for (let i = a.length - 1; i > 0; i--) { const j = rnd(i + 1); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+
+// ---------- save (per-viewer convenience) ----------
+const SAVE_KEY = 'wordburst-v1';
+let save = { best: 0, bestLvl: 1, level: 1, muted: false, voice: true };
+try { const s = JSON.parse(localStorage.getItem(SAVE_KEY)); if (s) save = Object.assign(save, s); } catch (e) {}
+const persist = () => { try { localStorage.setItem(SAVE_KEY, JSON.stringify(save)); } catch (e) {} };
+
+// ---------- sound ----------
+let ac = null, master = null;
+function audio() {
+  if (!ac) { try { ac = new (window.AudioContext || window.webkitAudioContext)(); master = ac.createGain(); master.gain.value = .9; master.connect(ac.destination); } catch (e) { return null; } }
+  if (ac.state === 'suspended') ac.resume();
+  return ac;
+}
+function tone(f, d = .12, type = 'sine', v = .14, t0 = 0, slide = 0) {
+  if (save.muted) return;
+  const a = audio(); if (!a) return;
+  const t = a.currentTime + t0, o = a.createOscillator(), g = a.createGain();
+  o.type = type; o.frequency.setValueAtTime(f, t); if (slide) o.frequency.exponentialRampToValueAtTime(f * slide, t + d);
+  g.gain.setValueAtTime(.0001, t); g.gain.exponentialRampToValueAtTime(v, t + .01); g.gain.exponentialRampToValueAtTime(.0001, t + d);
+  o.connect(g).connect(master); o.start(t); o.stop(t + d + .05);
+}
+let noiseBuf = null;
+function noise(d = .2, f = 1200, v = .15, q = 1, t0 = 0, f2 = 0) {
+  if (save.muted) return;
+  const a = audio(); if (!a) return;
+  if (!noiseBuf) { noiseBuf = a.createBuffer(1, a.sampleRate, a.sampleRate); const ch = noiseBuf.getChannelData(0); for (let i = 0; i < ch.length; i++) ch[i] = Math.random() * 2 - 1; }
+  const t = a.currentTime + t0, s = a.createBufferSource(), fl = a.createBiquadFilter(), g = a.createGain();
+  s.buffer = noiseBuf; fl.type = 'bandpass'; fl.frequency.setValueAtTime(f, t); if (f2) fl.frequency.exponentialRampToValueAtTime(f2, t + d); fl.Q.value = q;
+  g.gain.setValueAtTime(v, t); g.gain.exponentialRampToValueAtTime(.0001, t + d);
+  s.connect(fl).connect(g).connect(master); s.start(t); s.stop(t + d + .05);
+}
+let lastBump = 0;
+const SFX = {
+  shoot() { noise(.18, 900, .12, .8, 0, 3000); tone(300, .12, 'triangle', .08, 0, 2.2); },
+  bump(j) { const n = performance.now(); if (n - lastBump < 45) return; lastBump = n; const v = clamp(j / 2600, .015, .09); tone(160 + Math.random() * 60, .07, 'sine', v, 0, .6); noise(.04, 2200, v * .6, 2); },
+  merge(c) { const b = 440 * Math.pow(2, Math.min(c, 9) * 2 / 12); tone(b, .14, 'triangle', .13, 0, 1.5); tone(b * 1.5, .18, 'sine', .08, .05); noise(.12, 3000, .05, 3, 0, 6000); },
+  burst(c) { const b = 523 * Math.pow(2, Math.min(c, 8) * 2 / 12); [0, 4, 7, 12, 16].forEach((s, i) => tone(b * Math.pow(2, s / 12), .25, 'triangle', .12, i * .045)); noise(.4, 600, .2, .7, 0, 200); },
+  reject() { tone(200, .1, 'square', .03); },
+  star() { [1047, 1319, 1568, 2093].forEach((f, i) => tone(f, .2, 'sine', .08, i * .06)); },
+  warn() { tone(660, .12, 'square', .04); },
+  lose() { [392, 330, 262, 196].forEach((f, i) => tone(f, .3, 'sawtooth', .05, i * .16)); },
+  win() { [523, 659, 784, 1047, 784, 1047, 1319].forEach((f, i) => tone(f, .24, 'triangle', .12, i * .1)); },
+  swap() { tone(700, .06, 'sine', .08); tone(900, .06, 'sine', .07, .05); },
+};
+
+// ---------- speech (British English) ----------
+const synth = window.speechSynthesis;
+let enVoice = null;
+function pickVoice() {
+  if (!synth) return;
+  const vs = synth.getVoices(), gb = vs.filter(v => /en[-_]GB/i.test(v.lang));
+  enVoice = gb.find(v => /natural|neural|premium|enhanced|google uk english female|serena|kate|sonia|libby/i.test(v.name)) || gb[0] || vs.find(v => /^en/i.test(v.lang)) || null;
+}
+if (synth) { pickVoice(); synth.addEventListener?.('voiceschanged', pickVoice); }
+function speak(text) {
+  if (!synth || !save.voice || !text) return;
+  try {
+    synth.cancel();
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = 'en-GB'; u.rate = .92; u.pitch = 1.05; if (enVoice) u.voice = enVoice;
+    synth.speak(u);
+  } catch (e) {}
+}
+
+// ---------- canvas / world ----------
+const cv = $('#cv'), cx = cv.getContext('2d'), stage = $('#stage');
+const W = 400;              // logical field width
+let H = 640, scale = 1, dpr = 1;
+let R0 = 33;                // base ball radius
+const FIELD_PAD = 6;
+function resize() {
+  const r = stage.getBoundingClientRect();
+  dpr = Math.min(window.devicePixelRatio || 1, 2);
+  cv.width = Math.round(r.width * dpr); cv.height = Math.round(r.height * dpr);
+  scale = r.width / W; H = r.height / scale;
+  cx.setTransform(scale * dpr, 0, 0, scale * dpr, 0, 0);
+  R0 = clamp(H / 19, 29, 35);
+}
+const shooterY = () => H - 46;
+const dangerY = () => H - 112;
+
+const PALETTE = [
+  ['#ff7a59', '#d84a3a'], ['#5b8cff', '#3559cc'], ['#2fbf8f', '#13875f'], ['#b36bff', '#7d3ad1'],
+  ['#ffb627', '#d0820a'], ['#ff5c9a', '#c92e6c'], ['#22b8d6', '#137f9c'], ['#8bc34a', '#5b8a22'],
+];
+const radiusFor = n => R0 * (1 + (n - 1) * .2);
+
+// ---------- state ----------
+const S = {
+  balls: [], parts: [], floats: [], rings: [], level: 1, score: 0, done: 0, target: 7, active: [], deck: [],
+  cur: null, next: null, aim: null, aiming: false, chain: 0, lastMergeT: 0, shots: 0, dropIn: 7,
+  dangerT: 0, over: true, paused: false, t: 0, shake: 0, learned: [], stars: 0, ending: 0, reload: 0, warnT: 0,
+};
+window.__wordBurst = S; // debug handle
+let uid = 1;
+
+function levelCfg(l) {
+  return {
+    groups: Math.min(3 + l, 11),
+    prefill: Math.min(6 + l * 2, 20),
+    target: 5 + l * 2,
+    partnerP: Math.max(.5, .78 - l * .03),
+    dropEvery: Math.max(4, 9 - Math.floor(l / 2)),
+    dropN: l < 3 ? 1 : l < 6 ? 2 : 3,
+  };
+}
+function drawGroup() {
+  if (!S.deck.length) S.deck = shuffle(VOCAB.map((_, i) => i));
+  let g = S.deck.pop(), guard = 0;
+  while ((S.active.includes(g) || S.balls.some(b => b.g === g)) && guard++ < 80) { if (!S.deck.length) S.deck = shuffle(VOCAB.map((_, i) => i)); g = S.deck.pop(); }
+  return g;
+}
+
+function makeBall(g, forms, x, y, opts = {}) {
+  const c = opts.c || pick(PALETTE);
+  const b = {
+    id: uid++, g, forms: new Set(forms), wild: !!opts.wild, x, y, vx: 0, vy: 0, r: opts.wild ? R0 * .92 : radiusFor(forms.length),
+    rr: opts.grow ? 2 : 0, ang: Math.random() * 6.28, av: 0, c, flying: false, sq: 0, sqv: 0, sqa: 0, pulse: 0, born: S.t, dying: 0,
+    target: null, label: '',
+  };
+  if (!b.rr) b.rr = b.r;
+  setLabel(b);
+  return b;
+}
+function setLabel(b) {
+  if (b.wild) { b.label = '★'; return; }
+  const fs = [...b.forms];
+  // main label: the newest form that was added (what the player last saw), English preferred when merged
+  if (fs.length === 1) b.label = fs[0];
+  else b.label = fs.find(f => kindOf(f) === 'en') || fs[0];
+  b.sub = fs.filter(f => f !== b.label);
+}
+const groupSize = g => VOCAB[g].length;
+const englishOf = g => VOCAB[g].filter(f => kindOf(f) === 'en');
+
+// pick the next ammo, biased so the board usually has a partner for it
+function nextAmmo() {
+  if (S.stars > 0) { S.stars--; return { wild: true }; }
+  const cfg = levelCfg(S.level);
+  const live = S.balls.filter(b => !b.wild && !b.dying && b.forms.size < groupSize(b.g));
+  if (live.length && Math.random() < cfg.partnerP) {
+    const b = pick(live);
+    const missing = VOCAB[b.g].filter(f => !b.forms.has(f));
+    return { g: b.g, f: pick(missing) };
+  }
+  const g = pick(S.active);
+  return { g, f: pick(VOCAB[g]) };
+}
+
+// ---------- level flow ----------
+function startLevel(l) {
+  resize();
+  const cfg = levelCfg(l);
+  Object.assign(S, { balls: [], parts: [], floats: [], rings: [], level: l, done: 0, target: cfg.target, chain: 0, shots: 0, dropIn: cfg.dropEvery,
+    dangerT: 0, over: false, paused: false, learned: [], stars: 0, ending: 0, reload: 0, aim: null, aiming: false });
+  if (l === 1) S.score = 0;
+  S.levelStartScore = S.score;
+  S.active = [];
+  for (let i = 0; i < cfg.groups; i++) S.active.push(drawGroup());
+  // prefill: drop balls near the top, at most one form per group so nothing merges by itself
+  const used = new Set();
+  for (let i = 0; i < cfg.prefill; i++) {
+    let g = S.active[i % S.active.length];
+    const avail = VOCAB[g].filter(f => !used.has(f));
+    if (!avail.length) continue;
+    const f = pick(avail); used.add(f);
+    const b = makeBall(g, [f], FIELD_PAD + R0 + Math.random() * (W - 2 * (FIELD_PAD + R0)), R0 + Math.random() * H * .35);
+    b.noMerge = true;
+    S.balls.push(b);
+  }
+  for (let i = 0; i < 360; i++) physics(1 / 120);
+  S.balls.forEach(b => { b.vx = b.vy = 0; b.noMerge = false; b.born = S.t - 1; });
+  S.cur = nextAmmo(); S.next = nextAmmo();
+  hud();
+  ['#ovStart', '#ovEnd', '#ovPause'].forEach(s => $(s).hidden = true);
+}
+
+function completeLevel() {
+  S.over = true; S.ending = 1;
+  // pop the remaining balls one by one for bonus points
+  const rest = S.balls.filter(b => !b.dying).sort((a, b) => b.y - a.y);
+  rest.forEach((b, i) => setTimeout(() => { if (!S.balls.includes(b)) return; popBall(b, 0, true); addScore(25, b.x, b.y); }, 120 + i * 90));
+  setTimeout(() => {
+    SFX.win();
+    save.level = S.level + 1; save.bestLvl = Math.max(save.bestLvl, S.level + 1); save.best = Math.max(save.best, S.score); persist();
+    showEnd(true);
+  }, 400 + rest.length * 90 + 500);
+}
+function gameOver() {
+  S.over = true; SFX.lose(); S.shake = 14;
+  save.best = Math.max(save.best, S.score); persist();
+  S.balls.forEach(b => { b.dead = true; });
+  setTimeout(() => showEnd(false), 1100);
+}
+function showEnd(win) {
+  $('#endTitle').textContent = win ? `${S.level}. szint kész!` : 'Megtelt a pálya!';
+  $('#endSub').textContent = win ? 'Ezeket a szavakat párosítottad:' : (S.learned.length ? 'Ezeket a szavakat párosítottad:' : 'Célozz a hasonló jelentésű szavakra!');
+  $('#endScore').textContent = S.score; $('#endBest').textContent = save.best;
+  $('#learned').innerHTML = S.learned.slice(-12).map(g => { const v = VOCAB[g].filter(f => !isPic(f)); return `<span>${v.filter(f => kindOf(f) === 'en').join(' = ')} <em>${v.filter(f => kindOf(f) === 'hu').join('')}</em></span>`; }).join('');
+  $('#nextBtn').textContent = win ? 'Következő szint' : 'Újra';
+  $('#nextBtn').onclick = () => { audio(); if (!win) S.score = S.levelStartScore; startLevel(win ? S.level + 1 : S.level); };
+  $('#altBtn').hidden = S.level === 1 && !win;
+  $('#ovEnd').hidden = false;
+}
+
+// ---------- scoring / hud ----------
+function addScore(n, x, y, txt) {
+  S.score += n; hud();
+  S.floats.push({ x, y, t: 0, txt: txt || `+${n}`, big: !!txt });
+}
+function hud() {
+  $('#lvl').textContent = S.level; $('#score').textContent = S.score;
+  $('#barFill').style.width = `${Math.min(100, S.done / S.target * 100)}%`;
+  $('#barTxt').textContent = `${Math.min(S.done, S.target)} / ${S.target}`;
+}
+
+// ---------- merging ----------
+function canMerge(a, b) {
+  if (a.dying || b.dying || a.target || b.target || a.noMerge || b.noMerge || a.dead) return false;
+  if (a.wild && b.wild) return false;
+  if (a.locked > 0 || b.locked > 0) return false;
+  if (a.wild || b.wild) { const o = a.wild ? b : a; return o.forms.size < groupSize(o.g); }
+  if (a.g !== b.g) return false;
+  for (const f of a.forms) if (b.forms.has(f)) return false;
+  return true;
+}
+function registerChain() {
+  S.chain = S.t - S.lastMergeT < 1.6 ? S.chain + 1 : 1;
+  S.lastMergeT = S.t;
+  if (S.chain === 2 || S.chain === 4) { S.stars++; SFX.star(); S.floats.push({ x: W / 2, y: H * .45, t: 0, txt: '★ Csillag!', big: true }); }
+  return S.chain;
+}
+function startMerge(a, b) {
+  // the absorbed ball flies into the keeper; keeper = the one already resting (or the bigger)
+  let keep = a, eat = b;
+  if (a.flying || (!b.flying && b.forms.size > a.forms.size)) { keep = b; eat = a; }
+  if (keep.wild) [keep, eat] = [eat, keep];
+  eat.target = keep; eat.mt = 0; eat.flying = false;
+  keep.locked = (keep.locked || 0) + 1;
+}
+function finishMerge(eat) {
+  const keep = eat.target;
+  S.balls.splice(S.balls.indexOf(eat), 1);
+  keep.locked--;
+  if (!S.balls.includes(keep)) return;
+  let added;
+  if (eat.wild) {
+    const missing = VOCAB[keep.g].filter(f => !keep.forms.has(f));
+    added = missing.find(f => kindOf(f) === 'en') || missing[0];
+    keep.forms.add(added);
+  } else {
+    added = [...eat.forms];
+    added.forEach(f => keep.forms.add(f));
+    added = added.find(f => kindOf(f) === 'en') || added[0];
+  }
+  const m1 = eat.r * eat.r, m2 = keep.r * keep.r;
+  keep.vx = (keep.vx * m2 + eat.vx * m1) / (m1 + m2); keep.vy = (keep.vy * m2 + eat.vy * m1) / (m1 + m2);
+  keep.r = radiusFor(keep.forms.size);
+  keep.pulse = 1; keep.c = pick(PALETTE.filter(p => p !== keep.c));
+  setLabel(keep);
+  const c = registerChain();
+  S.rings.push({ x: keep.x, y: keep.y, r: keep.r, t: 0, c: '#fff' });
+  sparkle(keep.x, keep.y, 14 + c * 4, keep.c[0]);
+  // say the English word the player just connected
+  const say = kindOf(added) === 'en' ? added : (englishOf(keep.g)[0] || added);
+  if (keep.forms.size >= groupSize(keep.g)) {
+    completeGroup(keep, c);
+  } else {
+    SFX.merge(c);
+    speak(say);
+    addScore(10 * c, keep.x, keep.y - keep.r);
+    S.floats.push({ x: keep.x, y: keep.y + keep.r + 10, t: 0, txt: [...keep.forms].filter(f => !isPic(f)).join(' = '), word: true });
+    if (c > 1) S.floats.push({ x: keep.x, y: keep.y - keep.r - 26, t: 0, txt: `Combo ×${c}`, big: true });
+  }
+}
+function completeGroup(b, c) {
+  SFX.burst(c);
+  speak(englishOf(b.g).join(', '));
+  addScore(50 * c * Math.ceil(S.level / 2 + .5), b.x, b.y - b.r);
+  S.floats.push({ x: b.x, y: b.y + b.r + 12, t: 0, txt: VOCAB[b.g].filter(f => !isPic(f)).join(' = '), word: true });
+  if (c > 1) S.floats.push({ x: b.x, y: b.y - b.r - 30, t: 0, txt: ['', '', 'Double!', 'Triple!', 'Amazing!', 'Unstoppable!'][Math.min(c, 5)] || 'Unstoppable!', big: true });
+  if (!S.learned.includes(b.g)) S.learned.push(b.g);
+  popBall(b, c);
+  S.done++;
+  // retire the group, bring in fresh vocabulary
+  const i = S.active.indexOf(b.g);
+  if (i >= 0 && !S.balls.some(o => o !== b && o.g === b.g && !o.dying)) S.active[i] = drawGroup();
+  hud();
+  if (S.done >= S.target && !S.over) setTimeout(() => { if (!S.over) completeLevel(); }, 500);
+}
+function popBall(b, c = 1, quiet) {
+  b.dying = .001;
+  S.shake = Math.max(S.shake, quiet ? 3 : 8 + c * 2);
+  S.rings.push({ x: b.x, y: b.y, r: b.r, t: 0, c: b.c[0], wide: true });
+  sparkle(b.x, b.y, quiet ? 14 : 40, b.c[0], true);
+  if (quiet) { tone(500 + Math.random() * 400, .12, 'triangle', .07); return; }
+  // shockwave: shove neighbours away — this is what sets off chain reactions
+  for (const o of S.balls) {
+    if (o === b || o.dying) continue;
+    const dx = o.x - b.x, dy = o.y - b.y, d = Math.hypot(dx, dy) || 1, reach = b.r * 3.2;
+    if (d < reach) { const k = 520 * (1 - d / reach); o.vx += dx / d * k; o.vy += dy / d * k; }
+  }
+}
+
+// ---------- particles ----------
+const CONF = ['#ffd25a', '#ff7a59', '#4fe3b5', '#ffffff', '#7fb6ff', '#ff8fc8'];
+function sparkle(x, y, n, col, big) {
+  for (let i = 0; i < n; i++) {
+    const a = Math.random() * 6.283, s = (big ? 120 : 70) + Math.random() * (big ? 380 : 200);
+    S.parts.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: 1, dec: .9 + Math.random() * 1.2, size: 3 + Math.random() * (big ? 7 : 4),
+      c: Math.random() < .5 ? col : pick(CONF), rot: Math.random() * 6, vr: Math.random() * 10 - 5, sq: Math.random() < .5 });
+  }
+}
+
+// ---------- physics ----------
+const G = 1100;           // gravity pulls toward the TOP of the field
+const SHOT_V = 1500;
+const E = .32, MU = .12;
+function physics(dt) {
+  const balls = S.balls;
+  for (const b of balls) {
+    if (b.target) {
+      // being absorbed: glide into the keeper
+      b.mt += dt / .14;
+      const k = b.target; b.x += (k.x - b.x) * Math.min(1, b.mt); b.y += (k.y - b.y) * Math.min(1, b.mt);
+      b.rr *= .9;
+      continue;
+    }
+    if (b.dead) { b.vy += 900 * dt; b.vx *= .99; b.x += b.vx * dt; b.y += b.vy * dt; b.ang += b.av * dt; continue; }
+    if (!b.flying) b.vy -= G * dt;
+    const damp = Math.pow(.35, dt);
+    if (!b.flying) { b.vx *= damp; b.vy *= Math.pow(.6, dt); }
+    const sp = Math.hypot(b.vx, b.vy); if (sp > 2200) { b.vx *= 2200 / sp; b.vy *= 2200 / sp; }
+    b.x += b.vx * dt; b.y += b.vy * dt;
+    b.ang += b.av * dt; b.av *= Math.pow(.4, dt);
+    b.rr += (b.r - b.rr) * Math.min(1, dt * 14);
+  }
+  for (let it = 0; it < 3; it++) {
+    for (let i = 0; i < balls.length; i++) {
+      const a = balls[i]; if (a.target || a.dying || a.dead) continue;
+      for (let j = i + 1; j < balls.length; j++) {
+        const b = balls[j]; if (b.target || b.dying || b.dead) continue;
+        const dx = b.x - a.x, dy = b.y - a.y, rs = a.rr + b.rr, d2 = dx * dx + dy * dy;
+        if (d2 >= rs * rs || d2 === 0) continue;
+        const d = Math.sqrt(d2), nx = dx / d, ny = dy / d, pen = rs - d;
+        if (it === 0 && canMerge(a, b)) { startMerge(a, b); continue; }
+        if (a.flying || b.flying) {
+          const s = a.flying ? a : b;
+          s.flying = false;
+          if (!canMerge(a, b) && !s.wild && it === 0) { SFX.reject(); s.rejectT = .35; }
+        }
+        const ma = a.rr * a.rr, mb = b.rr * b.rr, ia = 1 / ma, ib = 1 / mb;
+        const corr = pen * .8 / (ia + ib);
+        a.x -= nx * corr * ia; a.y -= ny * corr * ia; b.x += nx * corr * ib; b.y += ny * corr * ib;
+        const rvx = b.vx - a.vx, rvy = b.vy - a.vy, vn = rvx * nx + rvy * ny;
+        if (vn < 0) {
+          const jn = -(1 + E) * vn / (ia + ib);
+          a.vx -= jn * nx * ia; a.vy -= jn * ny * ia; b.vx += jn * nx * ib; b.vy += jn * ny * ib;
+          // friction + spin (balls roll over each other)
+          const tx = -ny, ty = nx, vt = rvx * tx + rvy * ty;
+          const jt = clamp(-vt / (ia + ib), -MU * jn, MU * jn);
+          a.vx -= jt * tx * ia; a.vy -= jt * ty * ia; b.vx += jt * tx * ib; b.vy += jt * ty * ib;
+          a.av += vt / a.rr * .5; b.av -= vt / b.rr * .5;
+          const imp = jn / Math.sqrt(ma + mb);
+          if (imp > 220 && it === 0) {
+            SFX.bump(imp);
+            const ang = Math.atan2(ny, nx), s = clamp(imp / 4000, 0, .22);
+            if (s > a.sq) { a.sq = s; a.sqa = ang; } if (s > b.sq) { b.sq = s; b.sqa = ang; }
+          }
+        }
+      }
+    }
+    // walls (top is the "floor" the pile rests on)
+    for (const b of balls) {
+      if (b.target || b.dead || b.dying) continue;
+      const L = FIELD_PAD + b.rr, Rr = W - FIELD_PAD - b.rr, T = FIELD_PAD + b.rr, B = H - FIELD_PAD - b.rr;
+      if (b.x < L) { b.x = L; if (b.vx < 0) { if (b.vx < -250 && it === 0) SFX.bump(-b.vx * 3); b.vx = -b.vx * (b.flying ? 1 : .45); b.av += b.vy / b.rr * .3; } }
+      if (b.x > Rr) { b.x = Rr; if (b.vx > 0) { if (b.vx > 250 && it === 0) SFX.bump(b.vx * 3); b.vx = -b.vx * (b.flying ? 1 : .45); b.av -= b.vy / b.rr * .3; } }
+      if (b.y < T) {
+        b.y = T;
+        if (b.vy < 0) {
+          if (b.vy < -300 && it === 0) { SFX.bump(-b.vy * 3); b.sq = Math.max(b.sq, clamp(-b.vy / 6000, 0, .22)); b.sqa = Math.PI / 2; }
+          b.vy = -b.vy * .3; b.flying = false; b.vx *= .9; b.av = b.vx / b.rr;
+        }
+      }
+      if (b.y > B) { b.y = B; if (b.vy > 0) b.vy = -b.vy * .3; }
+    }
+  }
+}
+
+function step(dt) {
+  S.t += dt;
+  if (S.over && !S.ending && !S.balls.some(b => b.dead)) return;
+  const sub = 3, h = dt / sub;
+  for (let i = 0; i < sub; i++) physics(h);
+  // merge glides that have arrived
+  for (const b of [...S.balls]) if (b.target && b.mt >= 1) finishMerge(b);
+  // deaths
+  for (const b of [...S.balls]) {
+    if (b.dying) { b.dying += dt * 5; if (b.dying >= 1) S.balls.splice(S.balls.indexOf(b), 1); }
+    if (b.dead && b.y > H + 200) S.balls.splice(S.balls.indexOf(b), 1);
+    if (b.rejectT) b.rejectT = Math.max(0, b.rejectT - dt);
+    // squash spring
+    b.sqv += (-b.sq * 320 - b.sqv * 16) * dt; b.sq += b.sqv * dt;
+    if (b.pulse > 0) b.pulse = Math.max(0, b.pulse - dt * 2.2);
+  }
+  if (S.reload > 0) S.reload = Math.max(0, S.reload - dt);
+  if (S.over) return;
+  // danger: anything resting below the red line for too long ends the run
+  const dy = dangerY();
+  const over = S.balls.some(b => !b.flying && !b.target && !b.dying && S.t - b.born > .9 && b.y + b.r > dy);
+  if (over) {
+    S.dangerT += dt;
+    S.warnT -= dt; if (S.warnT <= 0) { SFX.warn(); S.warnT = .5; }
+    if (S.dangerT > 2.6) gameOver();
+  } else S.dangerT = Math.max(0, S.dangerT - dt * 2);
+}
+
+// ---------- shooting ----------
+function aimDir() {
+  if (!S.aim) return null;
+  const sx = W / 2, sy = shooterY();
+  let dx = S.aim.x - sx, dy = S.aim.y - sy;
+  if (dy > -20) dy = -20;
+  let a = Math.atan2(dy, dx);
+  a = clamp(a, -Math.PI + .2, -.2);
+  return { x: Math.cos(a), y: Math.sin(a) };
+}
+function fire() {
+  if (S.over || S.paused || S.reload > 0 || !S.cur) return;
+  const d = aimDir(); if (!d) return;
+  const a = S.cur, sy = shooterY();
+  const b = a.wild ? makeBall(-1, [], W / 2, sy, { wild: true }) : makeBall(a.g, [a.f], W / 2, sy, { c: a.c });
+  b.flying = true; b.vx = d.x * SHOT_V; b.vy = d.y * SHOT_V; b.born = S.t;
+  S.balls.push(b);
+  S.cur = S.next; S.next = nextAmmo();
+  S.reload = .28; S.recoil = 1; S.shots++; S.lastMergeT = -10;
+  SFX.shoot();
+  if (--S.dropIn <= 0) { const cfg = levelCfg(S.level); S.dropIn = cfg.dropEvery; setTimeout(() => dropBalls(cfg.dropN), 450); }
+}
+// pressure: every few shots, new bubbles appear under the ceiling and push the pile down
+function dropBalls(n) {
+  if (S.over) return;
+  for (let i = 0; i < n; i++) {
+    const g = pick(S.active), b = makeBall(g, [pick(VOCAB[g])], FIELD_PAD + R0 + Math.random() * (W - 2 * (FIELD_PAD + R0)), FIELD_PAD + R0, { grow: true });
+    b.born = S.t; b.noMerge = true; S.balls.push(b);
+    setTimeout(() => { b.noMerge = false; }, 500);
+    S.rings.push({ x: b.x, y: b.y, r: R0, t: 0, c: '#ffffff' });
+  }
+  noise(.3, 400, .08, .6, 0, 1200);
+}
+function swapAmmo() {
+  if (S.over || S.paused) return;
+  [S.cur, S.next] = [S.next, S.cur]; S.swapAnim = 1; SFX.swap();
+}
+
+// trajectory preview: straight line with wall bounces until it touches a ball
+function trace() {
+  const d = aimDir(); if (!d) return null;
+  let x = W / 2, y = shooterY(), dx = d.x, dy = d.y;
+  const r = S.cur?.wild ? R0 * .92 : R0;
+  const pts = [[x, y]];
+  for (let bounce = 0; bounce < 3; bounce++) {
+    let best = Infinity, hit = null;
+    for (const b of S.balls) {
+      if (b.dying || b.target || b.dead) continue;
+      const ox = x - b.x, oy = y - b.y, rs = r + b.r;
+      const bq = ox * dx + oy * dy, c = ox * ox + oy * oy - rs * rs, disc = bq * bq - c;
+      if (disc < 0) continue;
+      const t = -bq - Math.sqrt(disc);
+      if (t > 0 && t < best) { best = t; hit = b; }
+    }
+    const L = FIELD_PAD + r, Rr = W - FIELD_PAD - r, T = FIELD_PAD + r;
+    const tw = dx < 0 ? (L - x) / dx : dx > 0 ? (Rr - x) / dx : Infinity;
+    const tt = dy < 0 ? (T - y) / dy : Infinity;
+    const tWall = Math.min(tw, tt);
+    if (best < tWall) { pts.push([x + dx * best, y + dy * best]); return { pts, end: pts[pts.length - 1], hit, r }; }
+    x += dx * tWall; y += dy * tWall; pts.push([x, y]);
+    if (tt <= tw) return { pts, end: [x, y], hit: null, r };
+    dx = -dx;
+  }
+  return { pts, end: pts[pts.length - 1], hit: null, r };
+}
+
+// ---------- input ----------
+function toWorld(e) { const r = cv.getBoundingClientRect(); return { x: (e.clientX - r.left) / scale, y: (e.clientY - r.top) / scale }; }
+const nextPos = () => ({ x: W / 2 + 92, y: shooterY() + 6 });
+cv.addEventListener('pointerdown', e => {
+  audio();
+  if (S.over || S.paused) return;
+  const p = toWorld(e), np = nextPos();
+  if (Math.hypot(p.x - np.x, p.y - np.y) < 36) { swapAmmo(); return; }
+  if (Math.hypot(p.x - W / 2, p.y - shooterY()) < 40) { swapAmmo(); return; }
+  S.aiming = true; S.aim = p; cv.setPointerCapture?.(e.pointerId);
+});
+cv.addEventListener('pointermove', e => {
+  if (!S.aiming) { if (e.pointerType === 'mouse' && !S.over) S.aim = toWorld(e); return; }
+  S.aim = toWorld(e);
+});
+const release = e => { if (!S.aiming) return; S.aiming = false; S.aim = toWorld(e); fire(); if (e.pointerType !== 'mouse') S.aim = null; };
+cv.addEventListener('pointerup', release);
+cv.addEventListener('pointercancel', () => { S.aiming = false; S.aim = null; });
+addEventListener('keydown', e => { if (e.code === 'Space') swapAmmo(); });
+
+// ---------- drawing ----------
+const FONT = '"Nunito", "Segoe UI", system-ui, sans-serif';
+function fitFont(text, maxW, size, weight = 900) {
+  cx.font = `${weight} ${size}px ${FONT}`;
+  const w = cx.measureText(text).width;
+  if (w > maxW) { size = Math.max(9, size * maxW / w); cx.font = `${weight} ${size}px ${FONT}`; }
+  return size;
+}
+function drawBall(b, alpha = 1) {
+  let r = b.rr;
+  if (b.dying) r *= 1 + b.dying * .5, alpha *= 1 - b.dying;
+  const pulse = b.pulse > 0 ? Math.sin(b.pulse * Math.PI) * .22 * b.pulse : 0;
+  r *= 1 + pulse;
+  cx.save();
+  cx.globalAlpha = alpha;
+  cx.translate(b.x, b.y);
+  if (b.rejectT) cx.translate(Math.sin(b.rejectT * 60) * 3 * b.rejectT / .35, 0);
+  // squash & stretch along the last impact direction
+  if (Math.abs(b.sq) > .002) { cx.rotate(b.sqa); cx.scale(1 - b.sq, 1 + b.sq * .7); cx.rotate(-b.sqa); }
+  // shadow
+  cx.fillStyle = 'rgba(30,6,40,.22)'; cx.beginPath(); cx.ellipse(r * .08, r * .12, r, r, 0, 0, 6.283); cx.fill();
+  if (b.wild) {
+    const g = cx.createConicGradient ? cx.createConicGradient(S.t * 2, 0, 0) : null;
+    if (g) { ['#ff5c9a', '#ffb627', '#4fe3b5', '#5b8cff', '#b36bff', '#ff5c9a'].forEach((c, i) => g.addColorStop(i / 5, c)); cx.fillStyle = g; }
+    else cx.fillStyle = '#ffb627';
+    cx.beginPath(); cx.arc(0, 0, r, 0, 6.283); cx.fill();
+  } else {
+    const g = cx.createRadialGradient(-r * .35, -r * .4, r * .1, 0, 0, r);
+    g.addColorStop(0, b.c[0]); g.addColorStop(1, b.c[1]);
+    cx.fillStyle = g; cx.beginPath(); cx.arc(0, 0, r, 0, 6.283); cx.fill();
+  }
+  // rolling pattern: dots that rotate with the ball's spin
+  cx.save(); cx.rotate(b.ang); cx.fillStyle = 'rgba(255,255,255,.13)';
+  for (let i = 0; i < 6; i++) { const a = i / 6 * 6.283; cx.beginPath(); cx.arc(Math.cos(a) * r * .74, Math.sin(a) * r * .74, r * .09, 0, 6.283); cx.fill(); }
+  cx.restore();
+  // rim + gloss
+  cx.lineWidth = 2.5; cx.strokeStyle = 'rgba(255,255,255,.35)'; cx.beginPath(); cx.arc(0, 0, r - 1.5, 0, 6.283); cx.stroke();
+  cx.fillStyle = 'rgba(255,255,255,.38)'; cx.beginPath(); cx.ellipse(-r * .34, -r * .45, r * .36, r * .2, -.5, 0, 6.283); cx.fill();
+  // merged tier ring + progress pips
+  const n = b.wild ? 0 : b.forms.size, tot = b.wild ? 0 : groupSize(b.g);
+  if (n > 1) { cx.lineWidth = 3.5; cx.strokeStyle = '#ffd25a'; cx.beginPath(); cx.arc(0, 0, r - 2, 0, 6.283); cx.stroke(); }
+  // text
+  cx.textAlign = 'center'; cx.textBaseline = 'middle';
+  if (b.wild) {
+    cx.fillStyle = '#fff'; cx.font = `900 ${r * 1.1}px ${FONT}`; cx.fillText('★', 0, r * .05);
+  } else if (isPic(b.label)) {
+    cx.fillStyle = '#fff'; cx.font = `${r * 1.05}px ${FONT}`; cx.fillText(b.label, 0, r * .06);
+  } else {
+    const kind = kindOf(b.label);
+    const size = fitFont(b.label, r * 1.7, r * (b.label.length > 8 ? .42 : .5), kind === 'hu' ? 800 : 900);
+    if (kind === 'hu') cx.font = `italic 800 ${size}px ${FONT}`;
+    cx.lineWidth = 3.5; cx.strokeStyle = 'rgba(40,10,50,.35)'; cx.lineJoin = 'round';
+    const ty = n > 1 ? -r * .1 : 0;
+    cx.strokeText(b.label, 0, ty); cx.fillStyle = '#fff'; cx.fillText(b.label, 0, ty);
+  }
+  if (n > 1) {
+    const sub = b.sub.filter(f => !isPic(f))[0] || b.sub[0];
+    if (sub) { const s = fitFont(sub, r * 1.4, r * .27, 800); cx.fillStyle = 'rgba(255,255,255,.85)'; cx.fillText(sub, 0, r * .3); }
+    for (let i = 0; i < tot; i++) {
+      const px = (i - (tot - 1) / 2) * 9, py = r * .62;
+      cx.fillStyle = i < n ? '#ffd25a' : 'rgba(255,255,255,.35)'; cx.beginPath(); cx.arc(px, py, 3, 0, 6.283); cx.fill();
+    }
+  }
+  cx.restore();
+}
+function drawAmmo(a, x, y, r, alpha = 1) {
+  if (!a) return;
+  const fake = a.wild ? { wild: true, rr: r, x, y, ang: S.t, forms: new Set(), sq: 0, pulse: 0, label: '★' }
+    : { g: a.g, forms: new Set([a.f]), rr: r, x, y, ang: 0, sq: 0, pulse: 0, label: a.f, c: a.c || (a.c = pick(PALETTE)), sub: [] };
+  drawBall(fake, alpha);
+}
+
+function render() {
+  cx.clearRect(0, 0, W, H);
+  cx.save();
+  if (S.shake > 0) cx.translate((Math.random() - .5) * S.shake, (Math.random() - .5) * S.shake);
+  // field glass
+  const fg = cx.createLinearGradient(0, 0, 0, H);
+  fg.addColorStop(0, 'rgba(255,255,255,.16)'); fg.addColorStop(1, 'rgba(255,255,255,.05)');
+  cx.fillStyle = fg; roundRect(2, 2, W - 4, H - 4, 22); cx.fill();
+  cx.strokeStyle = 'rgba(255,255,255,.25)'; cx.lineWidth = 2; cx.stroke();
+  // danger line
+  const dy = dangerY(), hot = S.dangerT > 0;
+  cx.save();
+  cx.setLineDash([10, 8]); cx.lineDashOffset = -S.t * 30;
+  cx.strokeStyle = hot ? `rgba(255,77,109,${.6 + Math.sin(S.t * 18) * .4})` : 'rgba(255,77,109,.55)'; cx.lineWidth = hot ? 4 : 2.5;
+  cx.beginPath(); cx.moveTo(12, dy); cx.lineTo(W - 12, dy); cx.stroke();
+  cx.restore();
+  if (hot) { cx.fillStyle = `rgba(255,77,109,${.12 + Math.min(S.dangerT / 2.6, 1) * .25})`; cx.fillRect(4, dy, W - 8, H - dy - 4); }
+
+  // aim guide
+  if (!S.over && !S.paused && S.aim && S.cur) {
+    const tr = trace();
+    if (tr) {
+      cx.save();
+      cx.strokeStyle = 'rgba(255,255,255,.75)'; cx.lineWidth = 4; cx.lineCap = 'round'; cx.setLineDash([2, 12]); cx.lineDashOffset = -S.t * 60;
+      cx.beginPath(); tr.pts.forEach(([x, y], i) => i ? cx.lineTo(x, y) : cx.moveTo(x, y)); cx.stroke();
+      cx.setLineDash([]);
+      const [ex, ey] = tr.end;
+      const match = tr.hit && S.cur.wild && !tr.hit.wild && tr.hit.forms.size < groupSize(tr.hit.g);
+      cx.strokeStyle = match ? 'rgba(255,210,90,.95)' : 'rgba(255,255,255,.6)'; cx.lineWidth = 2.5;
+      cx.beginPath(); cx.arc(ex, ey, tr.r, 0, 6.283); cx.stroke();
+      cx.restore();
+    }
+  }
+
+  for (const b of S.balls) if (b.target) drawBall(b, .9);
+  for (const b of S.balls) if (!b.target) drawBall(b);
+
+  // rings
+  for (const r of S.rings) {
+    const k = r.t;
+    cx.strokeStyle = r.c; cx.globalAlpha = 1 - k; cx.lineWidth = (r.wide ? 10 : 5) * (1 - k);
+    cx.beginPath(); cx.arc(r.x, r.y, r.r + k * (r.wide ? 90 : 40), 0, 6.283); cx.stroke();
+  }
+  cx.globalAlpha = 1;
+  // particles
+  for (const p of S.parts) {
+    cx.globalAlpha = Math.max(0, p.life); cx.fillStyle = p.c;
+    cx.save(); cx.translate(p.x, p.y); cx.rotate(p.rot);
+    if (p.sq) cx.fillRect(-p.size / 2, -p.size / 4, p.size, p.size / 2); else { cx.beginPath(); cx.arc(0, 0, p.size / 2, 0, 6.283); cx.fill(); }
+    cx.restore();
+  }
+  cx.globalAlpha = 1;
+
+  // launcher
+  const sx = W / 2, sy = shooterY(), d = aimDir() || { x: 0, y: -1 };
+  const rec = (S.recoil || 0) * 8;
+  cx.save(); cx.translate(sx, sy); cx.rotate(Math.atan2(d.y, d.x) + Math.PI / 2);
+  cx.fillStyle = 'rgba(20,6,36,.45)'; roundRect(-15, -58 + rec, 30, 40, 10); cx.fill();
+  cx.restore();
+  cx.fillStyle = 'rgba(20,6,36,.5)'; cx.beginPath(); cx.arc(sx, sy, 42, 0, 6.283); cx.fill();
+  cx.strokeStyle = 'rgba(255,210,90,.8)'; cx.lineWidth = 3; cx.beginPath(); cx.arc(sx, sy, 42, 0, 6.283); cx.stroke();
+  // reload arc
+  if (S.reload > 0) { cx.strokeStyle = '#fff'; cx.lineWidth = 3; cx.beginPath(); cx.arc(sx, sy, 42, -Math.PI / 2, -Math.PI / 2 + 6.283 * (1 - S.reload / .28)); cx.stroke(); }
+  const sw = S.swapAnim || 0;
+  drawAmmo(S.cur, sx, sy - sw * 10, R0 * (1 - sw * .3));
+  // next
+  const np = nextPos();
+  cx.fillStyle = 'rgba(20,6,36,.4)'; cx.beginPath(); cx.arc(np.x, np.y, 30, 0, 6.283); cx.fill();
+  drawAmmo(S.next, np.x, np.y, 23, .85);
+  cx.fillStyle = 'rgba(255,255,255,.75)'; cx.font = `900 10px ${FONT}`; cx.textAlign = 'center';
+  cx.fillText('⇄ CSERE', np.x, np.y + 40);
+  // drop countdown (left)
+  if (!S.over) {
+    const lx = W / 2 - 92, ly = shooterY() + 6;
+    cx.fillStyle = 'rgba(20,6,36,.4)'; cx.beginPath(); cx.arc(lx, ly, 26, 0, 6.283); cx.fill();
+    cx.fillStyle = S.dropIn <= 1 ? '#ff8fa3' : '#fff'; cx.font = `900 20px ${FONT}`; cx.textBaseline = 'middle'; cx.fillText(S.dropIn, lx, ly);
+    cx.fillStyle = 'rgba(255,255,255,.75)'; cx.font = `900 10px ${FONT}`; cx.textBaseline = 'alphabetic'; cx.fillText('ÚJ BUBORÉK', lx, ly + 40);
+    if (S.stars) { cx.fillStyle = '#ffd25a'; cx.font = `900 14px ${FONT}`; cx.fillText('★'.repeat(Math.min(S.stars, 3)), sx, sy - 52); }
+  }
+
+  // floating texts
+  cx.textAlign = 'center'; cx.textBaseline = 'middle';
+  for (const f of S.floats) {
+    const k = f.t, y = f.y - k * (f.word ? 24 : 50), a = k < .75 ? 1 : 1 - (k - .75) / .25;
+    cx.globalAlpha = Math.max(0, a);
+    const pop = k < .15 ? .6 + k / .15 * .5 : 1.1 - Math.min(.1, (k - .15));
+    if (f.word) {
+      const s = fitFont(f.txt, W - 40, 17, 900);
+      const tw = cx.measureText(f.txt).width + 20;
+      const x = clamp(f.x, tw / 2 + 8, W - tw / 2 - 8);
+      cx.fillStyle = 'rgba(255,246,236,.95)'; roundRect(x - tw / 2, y - 14, tw, 28, 14); cx.fill();
+      cx.fillStyle = '#3a2147'; cx.fillText(f.txt, x, y + 1);
+    } else {
+      cx.save(); cx.translate(clamp(f.x, 60, W - 60), y); cx.scale(pop, pop);
+      cx.font = `800 ${f.big ? 30 : 20}px "Baloo 2", ${FONT}`;
+      cx.lineWidth = 5; cx.strokeStyle = 'rgba(60,10,60,.6)'; cx.lineJoin = 'round'; cx.strokeText(f.txt, 0, 0);
+      cx.fillStyle = f.big ? '#ffd25a' : '#fff'; cx.fillText(f.txt, 0, 0);
+      cx.restore();
+    }
+  }
+  cx.globalAlpha = 1;
+  cx.restore();
+}
+function roundRect(x, y, w, h, r) { cx.beginPath(); cx.moveTo(x + r, y); cx.arcTo(x + w, y, x + w, y + h, r); cx.arcTo(x + w, y + h, x, y + h, r); cx.arcTo(x, y + h, x, y, r); cx.arcTo(x, y, x + w, y, r); cx.closePath(); }
+
+// ---------- loop ----------
+let last = performance.now();
+function frame(now) {
+  let dt = Math.min(.033, (now - last) / 1000); last = now;
+  if (!S.paused) {
+    step(dt);
+    for (const p of S.parts) { p.x += p.vx * dt; p.y += p.vy * dt; p.vx *= Math.pow(.15, dt); p.vy *= Math.pow(.15, dt); p.vy -= 60 * dt; p.rot += p.vr * dt; p.life -= p.dec * dt; }
+    S.parts = S.parts.filter(p => p.life > 0);
+    for (const r of S.rings) r.t += dt * 2.4; S.rings = S.rings.filter(r => r.t < 1);
+    for (const f of S.floats) f.t += dt / (f.word ? 1.8 : 1.1); S.floats = S.floats.filter(f => f.t < 1);
+    S.shake = Math.max(0, S.shake - dt * 40);
+    if (S.recoil) S.recoil = Math.max(0, S.recoil - dt * 6);
+    if (S.swapAnim) S.swapAnim = Math.max(0, S.swapAnim - dt * 6);
+  }
+  render();
+  requestAnimationFrame(frame);
+}
+
+// ---------- UI wiring ----------
+const setBtns = () => { $('#muteBtn').classList.toggle('off', save.muted); $('#voiceBtn').classList.toggle('off', !save.voice); };
+$('#muteBtn').onclick = () => { save.muted = !save.muted; persist(); setBtns(); };
+$('#voiceBtn').onclick = () => { save.voice = !save.voice; persist(); setBtns(); if (!save.voice && synth) synth.cancel(); else speak('hello'); };
+$('#pauseBtn').onclick = () => { if (S.over) return; S.paused = true; $('#ovPause').hidden = false; };
+$('#resumeBtn').onclick = () => { S.paused = false; $('#ovPause').hidden = true; last = performance.now(); };
+$('#restartBtn').onclick = () => { S.score = S.levelStartScore || 0; startLevel(S.level); };
+$('#playBtn').onclick = () => { audio(); if (synth) { try { const u = new SpeechSynthesisUtterance(' '); u.volume = 0; synth.speak(u); } catch (e) {} } startLevel(save.level > 1 ? save.level : 1); };
+$('#altBtn').onclick = () => { save.level = 1; persist(); S.score = 0; startLevel(1); };
+if (save.best) { $('#bestBox').hidden = false; $('#bestScore').textContent = save.best; $('#bestLvl').textContent = save.bestLvl; $('#playBtn').textContent = save.level > 1 ? `Folytatás (${save.level}. szint)` : 'Játék'; }
+addEventListener('resize', resize);
+document.addEventListener('visibilitychange', () => { if (document.hidden && !S.over && !S.paused) { S.paused = true; $('#ovPause').hidden = false; } });
+setBtns(); resize();
+// idle demo board behind the start screen
+(() => { S.active = [0, 5, 7, 25]; for (let i = 0; i < 8; i++) { const g = S.active[i % 4]; S.balls.push(makeBall(g, [VOCAB[g][i >> 2]], 40 + Math.random() * 320, 40 + Math.random() * 200)); S.balls[i].noMerge = true; } for (let i = 0; i < 240; i++) physics(1 / 120); })();
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
